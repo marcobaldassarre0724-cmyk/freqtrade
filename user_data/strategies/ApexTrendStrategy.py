@@ -1,17 +1,17 @@
-# APEX Trend Strategy v1.0
+# APEX Trend Strategy v1.1
 # Donchian Channel Breakout + ATR Stop Loss + RSI + Volume Filter
 # Long-only | Kraken Spot | 4h bars
 # Built for Marco's APEX AI trading system
 
-from freqtrade.strategy import IStrategy, DecimalParameter, IntParameter
-from pandas import DataFrame
-import talib.abstract as ta
 import numpy as np
+from datetime import datetime
+from pandas import DataFrame
+from freqtrade.strategy import IStrategy, DecimalParameter, IntParameter
 
 
 class ApexTrendStrategy(IStrategy):
     """
-    APEX Trend Strategy v1.0
+    APEX Trend Strategy v1.1
     ========================
     Logic:
     - Uses 3 Donchian channel lookbacks (20, 55, 100 bars) to detect breakouts
@@ -21,51 +21,39 @@ class ApexTrendStrategy(IStrategy):
     - Long-only for Kraken spot trading
     """
 
-    # Strategy metadata
     INTERFACE_VERSION = 3
-    strategy_type = "long"
     can_short = False
     timeframe = "4h"
 
-    # ROI table - let the strategy handle exits via signals/stops
+    # ROI table
     minimal_roi = {
-        "0": 0.15,    # Take profit at 15%
-        "48": 0.08,   # After 48 hours, take profit at 8%
-        "96": 0.04,   # After 96 hours, take profit at 4%
-        "144": 0.02,  # After 144 hours, take profit at 2%
+        "0": 0.15,
+        "48": 0.08,
+        "96": 0.04,
+        "144": 0.02,
     }
 
-    # Stop loss - ATR-based exit is handled in custom_stoploss
-    # This is a hard fallback stop
+    # Hard fallback stop loss
     stoploss = -0.10
 
-    # Trailing stop disabled - we use custom ATR-based stop
     trailing_stop = False
-
-    # Use custom stoploss
     use_custom_stoploss = True
-
-    # Process only new candles for performance
     process_only_new_candles = True
-
-    # Number of candles needed for indicators
     startup_candle_count = 110
 
-    # Hyperopt parameters (tunable ranges)
+    # Hyperopt parameters
     buy_rsi_max = IntParameter(55, 75, default=65, space="buy", optimize=True)
     buy_volume_factor = DecimalParameter(1.0, 2.5, default=1.5, space="buy", optimize=True)
     atr_multiplier = DecimalParameter(1.5, 3.0, default=2.0, space="sell", optimize=True)
 
     def populate_indicators(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        """Calculate all indicators."""
 
-        # ── Donchian Channels (3 lookbacks) ──────────────────────────────
+        # Donchian Channels (3 lookbacks)
         for lb in [20, 55, 100]:
             dataframe[f"dc_high_{lb}"] = dataframe["high"].shift(1).rolling(lb).max()
             dataframe[f"dc_low_{lb}"] = dataframe["low"].shift(1).rolling(lb).min()
 
-        # ── Trend Score: average of 3 breakout signals ───────────────────
-        # +1 = above channel (bullish), -1 = below channel (bearish), 0 = inside
+        # Trend Score
         score = np.zeros(len(dataframe))
         for lb in [20, 55, 100]:
             sig = np.where(
@@ -73,42 +61,40 @@ class ApexTrendStrategy(IStrategy):
                 np.where(dataframe["close"] < dataframe[f"dc_low_{lb}"], -1.0, 0.0)
             )
             score += sig
-        dataframe["trend_score"] = score / 3.0  # normalized: -1 to +1
+        dataframe["trend_score"] = score / 3.0
 
-        # ── ATR for stop loss placement ───────────────────────────────────
-        dataframe["atr"] = ta.ATR(dataframe, timeperiod=20)
+        # ATR (manual calculation - no talib dependency)
+        high_low = dataframe["high"] - dataframe["low"]
+        high_close = (dataframe["high"] - dataframe["close"].shift()).abs()
+        low_close = (dataframe["low"] - dataframe["close"].shift()).abs()
+        true_range = high_low.combine(high_close, max).combine(low_close, max)
+        dataframe["atr"] = true_range.rolling(20).mean()
 
-        # ── RSI to avoid buying overbought ────────────────────────────────
-        dataframe["rsi"] = ta.RSI(dataframe, timeperiod=14)
+        # RSI (manual calculation)
+        delta = dataframe["close"].diff()
+        gain = delta.where(delta > 0, 0.0).rolling(14).mean()
+        loss = (-delta.where(delta < 0, 0.0)).rolling(14).mean()
+        rs = gain / loss.replace(0, 1e-10)
+        dataframe["rsi"] = 100 - (100 / (1 + rs))
 
-        # ── Volume: rolling average for spike detection ───────────────────
+        # Volume ratio
         dataframe["volume_ma"] = dataframe["volume"].rolling(20).mean()
-        dataframe["volume_ratio"] = dataframe["volume"] / dataframe["volume_ma"]
+        dataframe["volume_ratio"] = dataframe["volume"] / dataframe["volume_ma"].replace(0, 1e-10)
 
-        # ── Realized Volatility (annualized, for info) ────────────────────
+        # Realized volatility
         dataframe["returns"] = dataframe["close"].pct_change()
         dataframe["realized_vol"] = dataframe["returns"].rolling(30).std() * np.sqrt(365 * 6)
 
         return dataframe
 
     def populate_entry_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        """Define buy signals."""
 
         dataframe.loc[
             (
-                # At least 2 of 3 Donchian channels confirm breakout
                 (dataframe["trend_score"] >= 0.66) &
-
-                # RSI not overbought - avoid chasing already extended moves
                 (dataframe["rsi"] < self.buy_rsi_max.value) &
-
-                # Volume above average - confirms breakout is real
                 (dataframe["volume_ratio"] >= self.buy_volume_factor.value) &
-
-                # ATR must be valid (enough data)
                 (dataframe["atr"] > 0) &
-
-                # Candle volume > 0
                 (dataframe["volume"] > 0)
             ),
             "enter_long"
@@ -117,13 +103,9 @@ class ApexTrendStrategy(IStrategy):
         return dataframe
 
     def populate_exit_trend(self, dataframe: DataFrame, metadata: dict) -> DataFrame:
-        """Define sell signals."""
 
         dataframe.loc[
-            (
-                # Trend score flips negative - majority of channels show breakdown
-                (dataframe["trend_score"] <= -0.33)
-            ),
+            (dataframe["trend_score"] <= -0.33),
             "exit_long"
         ] = 1
 
@@ -133,17 +115,12 @@ class ApexTrendStrategy(IStrategy):
         self,
         pair: str,
         trade,
-        current_time,
+        current_time: datetime,
         current_rate: float,
         current_profit: float,
-        after_fill: bool,
         **kwargs
     ) -> float:
-        """
-        ATR-based trailing stop.
-        Stop is placed atr_multiplier * ATR below the current price.
-        This tightens as price rises, locking in profits.
-        """
+
         dataframe, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
 
         if dataframe is None or dataframe.empty:
@@ -155,10 +132,7 @@ class ApexTrendStrategy(IStrategy):
         if atr <= 0 or current_rate <= 0:
             return self.stoploss
 
-        # ATR stop distance as a fraction of current price
         atr_stop = (self.atr_multiplier.value * atr) / current_rate
-
-        # Return negative value (freqtrade expects negative stoploss)
         return -atr_stop
 
     def confirm_trade_entry(
@@ -168,15 +142,12 @@ class ApexTrendStrategy(IStrategy):
         amount: float,
         rate: float,
         time_in_force: str,
-        current_time,
+        current_time: datetime,
         entry_tag,
         side: str,
         **kwargs
     ) -> bool:
-        """
-        Final safety check before entering a trade.
-        Rejects entry if spread is too wide (protects against illiquid moments).
-        """
+
         dataframe, _ = self.dp.get_analyzed_dataframe(pair, self.timeframe)
 
         if dataframe is None or dataframe.empty:
@@ -184,8 +155,7 @@ class ApexTrendStrategy(IStrategy):
 
         last_candle = dataframe.iloc[-1]
 
-        # Reject if realized vol is extremely high (> 300% annualized)
-        # This protects against entering during flash crashes or extreme chaos
+        # Block entry during extreme volatility
         if last_candle["realized_vol"] > 3.0:
             return False
 
