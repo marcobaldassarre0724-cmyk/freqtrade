@@ -44,7 +44,7 @@ class ApexUltimateStrategy(IStrategy):
         "801": 0
     }
 
-    stoploss = -0.154
+    stoploss = -0.022
     trailing_stop = False
     use_custom_stoploss = False
     use_exit_signal = False
