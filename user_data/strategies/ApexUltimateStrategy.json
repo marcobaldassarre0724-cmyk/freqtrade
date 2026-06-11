@@ -1,0 +1,68 @@
+{
+  "strategy_name": "ApexUltimateStrategy",
+  "params": {
+    "trailing": {
+      "trailing_stop": false,
+      "trailing_stop_positive": null,
+      "trailing_stop_positive_offset": 0.0,
+      "trailing_only_offset_is_reached": false
+    },
+    "max_open_trades": {
+      "max_open_trades": 10
+    },
+    "buy": {
+      "adx_regime_min": 38,
+      "atr_confirm_mult": 0.029,
+      "buy_adx_min": 20,
+      "buy_cci_min": -148,
+      "buy_cmf_min": -0.08,
+      "buy_roc_min": 4.398,
+      "buy_rsi_max": 74,
+      "buy_rsi_min": 31,
+      "buy_stoch_rsi_max": 0.301,
+      "buy_volume_factor": 3.0,
+      "buy_williams_max": -74,
+      "dc_trend_score_entry": 0.8,
+      "use_adx": true,
+      "use_adx_regime": false,
+      "use_atr_confirm": true,
+      "use_bb_breakout": true,
+      "use_cci": false,
+      "use_cmf": false,
+      "use_doji_reversal": true,
+      "use_ema200_filter": true,
+      "use_ema_21_50": true,
+      "use_ema_50_200": false,
+      "use_ema_9_21": false,
+      "use_engulfing": true,
+      "use_hammer": true,
+      "use_macd": false,
+      "use_morning_star": false,
+      "use_obv_trend": true,
+      "use_piercing_line": true,
+      "use_roc": true,
+      "use_rsi": false,
+      "use_stoch_rsi": false,
+      "use_three_white_soldiers": true,
+      "use_williams": false
+    },
+    "sell": {
+      "atr_multiplier": 1.867,
+      "dc_trend_score_exit": -0.416,
+      "exit_min_profit": 0.035,
+      "use_bb_exit": false,
+      "use_macd_exit": true
+    },
+    "roi": {
+      "0": 0.417,
+      "196": 0.211,
+      "447": 0.077,
+      "1110": 0
+    },
+    "stoploss": {
+      "stoploss": -0.022
+    }
+  },
+  "ft_stratparam_v": 1,
+  "export_time": "2026-06-08 09:35:27.419209+00:00"
+}
